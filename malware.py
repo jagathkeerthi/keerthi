@@ -1,0 +1,102 @@
+import warnings
+warnings.filterwarnings('ignore')
+import streamlit as st
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.model_selection import GridSearchCV, train_test_split
+from sklearn.metrics import accuracy_score, recall_score, precision_score
+from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
+from lightgbm import LGBMClassifier
+import gdown
+
+# Streamlit App Title
+st.title("🚀 Network Attack Detection ML App")
+
+# Function to Load Data
+@st.cache_data
+def load_data():
+    file_id = "1lDRgc1TTKZH6LXT3AiTYrL-JEQUlHOT0"
+    url = f"https://drive.google.com/uc?id={file_id}"
+    output = "dataset.csv"
+
+    # Download dataset
+    gdown.download(url, output, quiet=False)
+    df = pd.read_csv(output)
+
+    # Drop 'id' column if it exists
+    df.drop(columns=['id'], errors='ignore', inplace=True)
+
+    # Convert categorical columns to numerical codes
+    for col in ['proto', 'service', 'state']:
+        df[col] = df[col].astype('category').cat.codes
+
+    if 'attack_cat' in df.columns:
+        df['attack_cat'] = df['attack_cat'].astype('category')
+
+    return df
+
+# Load dataset once
+df = load_data()
+
+# Display dataset only ONCE
+st.write("## 📊 Data Sample")
+st.dataframe(df.head())
+
+# Data Preprocessing
+X = df.drop(columns=['attack_cat', 'label'])
+y = df['label'].values
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=11)
+feature_names = list(X.columns)
+
+# Sidebar - Model Selection
+st.sidebar.header("⚙️ Model Selection")
+model_choice = st.sidebar.selectbox("Choose a Model", ["Decision Tree", "Random Forest", "XGBoost", "LightGBM"], key="unique_model_selection")
+
+# Initialize Model
+if model_choice == "Decision Tree":
+    params = {'criterion': ['gini', 'entropy'], 'max_depth': [2, 4], 'min_samples_split': [2, 4], 'min_samples_leaf': [1, 2]}
+    model = GridSearchCV(DecisionTreeClassifier(), params, cv=5, scoring='recall')
+elif model_choice == "Random Forest":
+    model = RandomForestClassifier(random_state=11)
+elif model_choice == "XGBoost":
+    model = XGBClassifier()
+elif model_choice == "LightGBM":
+    model = LGBMClassifier()
+
+# Train the model
+model.fit(X_train, y_train)
+y_pred = model.predict(X_test)
+
+# Model Evaluation
+accuracy = accuracy_score(y_test, y_pred)
+recall = recall_score(y_test, y_pred)
+precision = precision_score(y_test, y_pred)
+
+st.write(f"## 📈 Model Performance: {model_choice}")
+st.markdown(f"✅ **Accuracy:** {accuracy:.4f}")
+st.markdown(f"✅ **Recall:** {recall:.4f}")
+st.markdown(f"✅ **Precision:** {precision:.4f}")
+
+# Confusion Matrix
+st.write("### 🔍 Confusion Matrix")
+fig, ax = plt.subplots()
+sns.heatmap(pd.crosstab(y_test, y_pred), annot=True, fmt='d', cmap="YlGnBu", ax=ax)
+st.pyplot(fig)
+
+# Feature Importance (Only for Random Forest)
+if model_choice == "Random Forest":
+    feature_imp = pd.DataFrame({'Feature': feature_names, 'Importance': model.feature_importances_}).sort_values(by='Importance', ascending=False)
+    st.write("## 🔥 Feature Importance")
+    st.bar_chart(feature_imp.set_index("Feature"))
+
+# Sidebar - Predict New Sample
+st.sidebar.header("🔮 Predict New Sample")
+input_values = [st.sidebar.number_input(f"{feature}", value=0.0, key=f"input_{feature}") for feature in feature_names]
+
+if st.sidebar.button("Predict"):
+    prediction = model.predict([input_values])
+    st.sidebar.write(f"### 🛡️ Prediction: {'🚨 Attack' if prediction[0] == 1 else '✅ Normal'}")
